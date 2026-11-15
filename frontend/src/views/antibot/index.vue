@@ -24,6 +24,41 @@
       </span>
     </p>
 
+    <section class="service-panel">
+      <h3>识别服务运行状态（与重试批次联动）</h3>
+      <div class="service-actions">
+        <button class="btn" type="button" @click="toggleRecognitionService">
+          {{ recognitionDown ? '模拟识别服务恢复' : '模拟识别服务中断' }}
+        </button>
+        <span :class="['service-pill', recognitionDown ? 'down' : 'up']">
+          {{ recognitionDown ? '识别服务中断中' : '识别服务正常' }}
+        </span>
+      </div>
+      <p v-if="recognitionDown" class="error-text small">
+        识别服务中断：进行中的重试事务会失败并退回退避等待，从最后一次尝试继续，不会跳过等待；
+        中断期间不产生新的成功恢复，批次状态保持「正在等待退避」并保留异常说明。
+      </p>
+      <p v-if="!affectedBatches.length" class="empty-state">
+        暂不受识别服务中断影响：当前没有等待该服务的重试批次，待采集失败上报后这里会列出受影响批次及下一次尝试时间。
+      </p>
+      <table v-else class="data-table">
+        <thead>
+          <tr><th>关联任务</th><th>批次状态</th><th>下一次尝试</th><th>异常说明</th></tr>
+        </thead>
+        <tbody>
+          <tr v-for="view in affectedBatches" :key="view.jobKey">
+            <td>{{ view.jobKey }}</td>
+            <td>{{ view.statusLabel }}</td>
+            <td>
+              <span v-if="view.nextAttemptAt">{{ new Date(view.nextAttemptAt).toLocaleTimeString() }} 到期</span>
+              <span v-else class="error-text">{{ view.nextAttemptHint }}</span>
+            </td>
+            <td class="small">{{ view.latestException || '等待识别服务恢复后继续退避计时' }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
     <form class="filter-bar" @submit.prevent="reload">
       <label v-for="field in filterFields" :key="field" class="filter-item">
         <span>{{ field }}</span>
@@ -71,7 +106,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 
 import {
   downloadEntries,
@@ -80,6 +115,8 @@ import {
   runAction as applyAction,
 } from '@/api/local-service'
 import type { EntryRow } from '@/data/types'
+import { allJobRetryViews, setRecognitionServiceDown } from '@/data/retry/retry-service'
+import type { JobRetryView } from '@/data/retry/types'
 
 const meta = moduleMeta('antibot')
 const columns = ["策略编号", "验证码类型", "识别服务", "触发条件", "等待时长", "重试上限", "降级方案", "策略状态"]
@@ -92,12 +129,28 @@ const total = ref(0)
 const errorMessage = ref('')
 const filters = ref<Record<string, string>>({})
 const filterFields = columns.slice(0, 3)
+const recognitionDown = ref(false)
+const jobViews = ref<JobRetryView[]>([])
+let timer: number | undefined
+
+const affectedBatches = computed(() =>
+  jobViews.value.filter((view) => view.phase === 'waiting' || view.phase === 'running'),
+)
+
 const statusSummary = computed(() =>
   statuses.map((status: string) => ({
     status,
     count: rows.value.filter((row) => String(row.status) === status).length,
   })),
 )
+
+function toggleRecognitionService() {
+  recognitionDown.value = !recognitionDown.value
+  setRecognitionServiceDown(recognitionDown.value)
+  errorMessage.value = recognitionDown.value
+    ? '识别服务已模拟中断：重试事务将失败并退回退避等待（中断类异常按清单归为不可重试时直接转存一次）'
+    : '识别服务已恢复：等待窗口到期后可正常重试，历史失败尝试保留'
+}
 
 function resetFilters() {
   filters.value = {}
@@ -128,10 +181,48 @@ function reload() {
     const payload = listEntries(meta.key, filters.value)
     rows.value = payload.items
     total.value = payload.total
+    jobViews.value = allJobRetryViews()
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '反爬对抗列表读取失败'
   }
 }
 
-onMounted(reload)
+onMounted(() => {
+  reload()
+  timer = window.setInterval(reload, 1000)
+})
+
+onUnmounted(() => {
+  if (timer) {
+    window.clearInterval(timer)
+  }
+})
 </script>
+
+<style scoped>
+.service-panel {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+.service-panel h3 {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+.service-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.service-pill {
+  border-radius: 999px;
+  padding: 3px 12px;
+  font-size: 12px;
+}
+.service-pill.up { background: #dcfce7; color: #166534; }
+.service-pill.down { background: #fee2e2; color: #991b1b; }
+.small { font-size: 12px; }
+</style>

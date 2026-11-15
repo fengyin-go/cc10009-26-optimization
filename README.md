@@ -15,7 +15,9 @@
 │   ├── src/views/            每个业务模块一个页面
 │   ├── src/api/local-service.ts   本地数据服务：列表、筛选、动作流转、导出
 │   ├── src/data/             模块元数据 / 示例数据 / localStorage 持久化
+│   ├── src/data/retry/       失败重试领域：异常清单、重试批次引擎、存量迁移
 │   ├── src/stores/           会话与筛选状态
+│   ├── scripts/              重试引擎测试与 esbuild 测试打包器
 │   └── vite.config.ts        dev server 配置（open: false，无 /api 代理）
 ├── .gitignore
 └── docker-compose.yml
@@ -37,6 +39,44 @@ npm run dev
 cd frontend
 npm run build
 ```
+
+重试批次引擎的确定性验证（假时钟 + 内存存储，不依赖浏览器）：
+
+```bash
+cd frontend
+npm run test:retry
+```
+
+## 失败重试链路（失败记录 → 重试批次 → 采集作业）
+
+重试领域代码在 `frontend/src/data/retry/`，独立于通用 CRUD 台账，单独持久化到
+localStorage 的 `scraper-config-studio:retry-batches`：
+
+| 文件 | 职责 |
+| --- | --- |
+| `exception-catalog.ts` | 可重试/不可重试异常清单与分类口径 |
+| `types.ts` | 失败尝试、重试批次、作业重试视图等领域模型 |
+| `retry-store.ts` | 批次持久化、宽容读取、中断恢复（running → waiting） |
+| `policy.ts` | 通用台账 retry 行到重试策略的归一化（兼容占位文本字段） |
+| `retry-engine.ts` | 核心引擎：批次合并、指数退避、事务回退、转存幂等 |
+| `migration.ts` | 存量失败记录一次性迁移，历史尝试按原顺序保留 |
+| `retry-service.ts` | 浏览器侧单例服务，页面只通过它读写 |
+
+关键语义：
+
+- **窗口内共享一个计划批次**：同一关联任务存在 `waiting/running` 批次时，新的失败上报只并入
+  （`mergedFailureCount+1`、追加 attempts），不新建批次、不重算退避；批次级互斥锁保证并发触发
+  只计算一次退避。
+- **不能跳过等待**：退避窗口未到期时 `executeRetry` 直接拒绝并返回剩余等待秒数。
+- **事务失败退回等待**：执行器抛错后批次回到 `waiting`，从最后一次尝试时间起算下一轮指数退避。
+- **中断恢复**：落盘为 `running` 的批次在下次加载时统一退回 `waiting`，沿用原定退避窗口。
+- **转存只做一次**：`dumpCount` 是 0→1 的幂等闸门，达到最大重试次数或命中不可重试异常后只转存一次；
+  转存后的失败上报仅在原批次留痕，不再开在途计划。
+- **历史尝试只追加**：成功恢复（`recovered`）后全部失败尝试按原顺序保留。
+- **异常口径**：同时命中两张清单的冲突异常按不可重试处理；未登记异常保守视为不可重试；
+  老记录自带的 retryable 标记仅留档，一切以已知异常清单为准。
+- **状态同步**：采集任务页、采集监控页通过 `jobView` 显示「正在等待退避 / 重试执行中 / 已恢复 /
+  已失败转存」，暂无下一次尝试时写明原因；反爬对抗页可模拟识别服务中断观察回退与空态说明。
 
 ## 业务模块
 

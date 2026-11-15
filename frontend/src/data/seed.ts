@@ -176,6 +176,36 @@ export const SEED_ROWS: Record<string, EntryRow[]> = {
       "请求间隔秒": "采集任务样例3",
       "每日上限条数": "采集任务样例3",
       "超时秒数": "采集任务样例3"
+    },
+    {
+      "id": 4,
+      "status": "已失败",
+      "pending": true,
+      "abnormal": true,
+      "作业编号": "SPID-0004",
+      "目标站点": "news.example.com",
+      "抽取模板": "TEMP-0003",
+      "起始地址": "https://news.example.com/list",
+      "并发线程数": "4",
+      "请求间隔秒": "2",
+      "每日上限条数": "5000",
+      "超时秒数": "15",
+      "失败异常": "NETWORK_TIMEOUT"
+    },
+    {
+      "id": 5,
+      "status": "已失败",
+      "pending": true,
+      "abnormal": true,
+      "作业编号": "SPID-0005",
+      "目标站点": "mall.example.com",
+      "抽取模板": "TEMP-0002",
+      "起始地址": "https://mall.example.com/items",
+      "并发线程数": "2",
+      "请求间隔秒": "3",
+      "每日上限条数": "2000",
+      "超时秒数": "20",
+      "失败异常": "AUTH_FAILED"
     }
   ],
   "schedule": [
@@ -313,45 +343,45 @@ export const SEED_ROWS: Record<string, EntryRow[]> = {
   "retry": [
     {
       "id": 1,
-      "status": "草稿",
-      "pending": true,
-      "abnormal": false,
-      "策略编号": "RETR-0001",
-      "关联任务": "失败重试样例1",
-      "最大重试次数": "失败重试样例1",
-      "退避算法": "失败重试样例1",
-      "初始等待秒": "失败重试样例1",
-      "最大等待秒": "失败重试样例1",
-      "可重试异常": "失败重试样例1",
-      "失败转存": "失败重试样例1"
-    },
-    {
-      "id": 2,
-      "status": "待校验",
-      "pending": true,
-      "abnormal": true,
-      "策略编号": "RETR-0002",
-      "关联任务": "失败重试样例2",
-      "最大重试次数": "失败重试样例2",
-      "退避算法": "失败重试样例2",
-      "初始等待秒": "失败重试样例2",
-      "最大等待秒": "失败重试样例2",
-      "可重试异常": "失败重试样例2",
-      "失败转存": "失败重试样例2"
-    },
-    {
-      "id": 3,
       "status": "已启用",
       "pending": false,
       "abnormal": false,
+      "策略编号": "RETR-0001",
+      "关联任务": "SPID-0004",
+      "最大重试次数": 3,
+      "退避算法": "指数退避",
+      "初始等待秒": 2,
+      "最大等待秒": 60,
+      "可重试异常": "NETWORK_TIMEOUT,RATE_LIMITED,PROXY_FAILURE",
+      "失败转存": "dead-letter://spider/SPID-0004"
+    },
+    {
+      "id": 2,
+      "status": "已启用",
+      "pending": true,
+      "abnormal": true,
+      "策略编号": "RETR-0002",
+      "关联任务": "SPID-0005",
+      "最大重试次数": 2,
+      "退避算法": "指数退避",
+      "初始等待秒": 5,
+      "最大等待秒": 120,
+      "可重试异常": "NETWORK_TIMEOUT",
+      "失败转存": "dead-letter://spider/SPID-0005"
+    },
+    {
+      "id": 3,
+      "status": "草稿",
+      "pending": true,
+      "abnormal": false,
       "策略编号": "RETR-0003",
-      "关联任务": "失败重试样例3",
-      "最大重试次数": "失败重试样例3",
-      "退避算法": "失败重试样例3",
-      "初始等待秒": "失败重试样例3",
-      "最大等待秒": "失败重试样例3",
-      "可重试异常": "失败重试样例3",
-      "失败转存": "失败重试样例3"
+      "关联任务": "SPID-0001",
+      "最大重试次数": 4,
+      "退避算法": "指数退避",
+      "初始等待秒": 3,
+      "最大等待秒": 90,
+      "可重试异常": "TARGET_UNAVAILABLE,CONNECTION_RESET",
+      "失败转存": "dead-letter://spider/SPID-0001"
     }
   ],
   "extractor": [
